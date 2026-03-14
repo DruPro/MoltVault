@@ -1,0 +1,15 @@
+# ─────────────────────────────────────────────
+#  voltex_proxy  —  WebSocket ↔ TCP bridge
+#  Tiny Alpine image, one dependency (websockets)
+# ─────────────────────────────────────────────
+FROM python:3.12-alpine
+
+RUN pip install --no-cache-dir websockets
+
+WORKDIR /app
+COPY voltex_proxy.py .
+
+# WebSocket port the browser connects to
+EXPOSE 8765
+
+CMD ["python", "voltex_proxy.py"]

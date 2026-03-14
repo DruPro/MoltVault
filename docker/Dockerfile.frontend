@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────
+#  voltex_frontend  —  nginx static file server
+#  Serves voltex_dashboard.html on port 80
+# ─────────────────────────────────────────────
+FROM nginx:alpine
+
+# Remove default nginx content
+RUN rm -rf /usr/share/nginx/html/*
+
+# Copy dashboard
+COPY voltex_dashboard.html /usr/share/nginx/html/index.html
+
+# Minimal nginx config:
+#   - serves /  as index.html
+#   - no access logs to reduce noise
+#   - gzip on for the large HTML file
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80

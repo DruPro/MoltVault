@@ -1,0 +1,23 @@
+# Keep build contexts lean — only send what each Dockerfile needs
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated vault data — never bake state into the image
+vault.meta
+vault.blob
+registry.vtxr
+
+# Other build artifacts
+*.o
+*.exe
+build/
+.git/
+.env
+
+# Docs / guides (not needed in images)
+*.md
+SETUP.md
+VOLTEX_API_GUIDE.md

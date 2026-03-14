@@ -1,0 +1,99 @@
+# ═══════════════════════════════════════════════════════════════════
+#  VOLTEX  —  docker-compose.yml
+#
+#  One command to run the full stack:
+#    docker compose up --build
+#
+#  Services
+#  ────────
+#  api       C++ vault server         internal port 7474
+#  proxy     WebSocket ↔ TCP bridge   internal port 8765
+#  frontend  nginx dashboard          http://localhost:8080
+#
+#  Vault data persists in the named volume "vault_data".
+#  To wipe all memory:  docker compose down -v
+#
+#  Ports exposed to the host
+#  ─────────────────────────
+#  8080  →  dashboard  (change with: FRONTEND_PORT=3000 docker compose up)
+#  7474  →  vault API  (optional — exposed for direct Python client access)
+#
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── 1. Vault server (C++ binary) ──────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: voltex_api
+    restart: unless-stopped
+    working_dir: /vault
+    volumes:
+      - vault_data:/vault          # vault.meta · vault.blob · registry.vtxr
+    ports:
+      - "${API_PORT:-7474}:7474"   # expose for direct Python client use
+    environment:
+      - VOLTEX_PORT=7474
+    networks:
+      - voltex_net
+    healthcheck:
+      test: ["CMD-SHELL", "echo '{\"cmd\":\"STATUS\"}' | nc -q1 localhost 7474 | grep -q '\"ok\":true'"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+      start_period: 5s
+
+  # ── 2. WebSocket proxy (Python) ────────────────────────────────────
+  proxy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.proxy
+    container_name: voltex_proxy
+    restart: unless-stopped
+    environment:
+      - VOLTEX_HOST=api            # Docker service name resolves to api container
+      - VOLTEX_PORT=7474
+      - WS_HOST=0.0.0.0            # bind all interfaces inside the container
+      - WS_PORT=8765
+    networks:
+      - voltex_net
+    depends_on:
+      api:
+        condition: service_healthy  # wait for vault to be ready
+
+  # ── 3. Frontend (nginx) ────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: voltex_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - voltex_net
+    depends_on:
+      - proxy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 10s
+      timeout:  5s
+      retries:  3
+
+# ── Named volume — vault data survives container restarts ────────────
+volumes:
+  vault_data:
+    driver: local
+    # To use a specific host path instead of a Docker-managed volume,
+    # uncomment and set the path:
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: /your/host/path/vault
+
+# ── Internal network — services talk to each other by name ──────────
+networks:
+  voltex_net:
+    driver: bridge

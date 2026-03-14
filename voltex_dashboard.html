@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voltex Memory Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600&display=swap');
+
+  :root {
+    --bg:       #0a0c0f;
+    --bg2:      #0f1218;
+    --bg3:      #141820;
+    --bg4:      #1a2030;
+    --border:   #1e2a3a;
+    --border2:  #263548;
+    --text:     #c8d8e8;
+    --muted:    #5a7a96;
+    --accent:   #00c8ff;
+    --accent2:  #0088cc;
+    --green:    #00e676;
+    --amber:    #ffab40;
+    --red:      #ff5252;
+    --purple:   #ce93d8;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Space Grotesk', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid noise texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.18;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .shell { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  /* ─ Header ─ */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border2); padding-bottom: 16px; margin-bottom: 24px;
+  }
+  .logo {
+    font-family: var(--mono); font-size: 18px; font-weight: 700;
+    color: var(--accent); letter-spacing: 0.08em;
+  }
+  .logo span { color: var(--muted); font-weight: 400; }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    display: inline-block; margin-right: 6px;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+  .status-bar {
+    display: flex; gap: 20px; font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  .status-bar span { display: flex; align-items: center; gap: 6px; }
+  .status-bar b { color: var(--text); font-weight: 500; }
+
+  /* ─ Stats row ─ */
+  .stats-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px;
+    position: relative; overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stat-card:hover { border-color: var(--border2); }
+  .stat-card::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent-line, var(--accent)); opacity: 0.6;
+  }
+  .stat-card.green { --accent-line: var(--green); }
+  .stat-card.amber  { --accent-line: var(--amber); }
+  .stat-card.purple { --accent-line: var(--purple); }
+  .stat-label { font-size: 10px; font-family: var(--mono); color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+  .stat-val   { font-size: 28px; font-family: var(--mono); font-weight: 700; color: var(--text); margin-top: 6px; }
+  .stat-sub   { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+  /* ─ Main grid ─ */
+  .main-grid { display: grid; grid-template-columns: 1fr 380px; gap: 16px; }
+
+  /* ─ Panel ─ */
+  .panel {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  .panel-title {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .panel-title .hi { color: var(--accent); }
+  .panel-body { padding: 16px; }
+
+  /* ─ Namespace tabs ─ */
+  .ns-tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+  .ns-tab {
+    font-family: var(--mono); font-size: 10px; padding: 4px 10px;
+    border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+    background: transparent; color: var(--muted);
+    transition: all 0.15s; letter-spacing: 0.05em;
+  }
+  .ns-tab:hover  { border-color: var(--border2); color: var(--text); }
+  .ns-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(0,200,255,0.06); }
+
+  /* ─ Memory list ─ */
+  .mem-list { display: flex; flex-direction: column; gap: 6px; }
+  .mem-entry {
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+    background: var(--bg3); cursor: pointer; transition: all 0.15s;
+    position: relative;
+  }
+  .mem-entry:hover { border-color: var(--border2); background: var(--bg4); }
+  .mem-entry.selected { border-color: var(--accent); background: rgba(0,200,255,0.04); }
+  .mem-entry.pinned::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; border-radius: 6px 0 0 6px;
+    background: var(--green);
+  }
+  .mem-entry.decaying::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; border-radius: 6px 0 0 6px;
+    background: var(--amber);
+  }
+  .mem-entry-top { display: flex; align-items: center; justify-content: space-between; }
+  .mem-label { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .mem-ns    { font-size: 10px; font-family: var(--mono); padding: 2px 6px; border-radius: 3px; }
+  .ns-goals   { background: rgba(0,200,255,0.12); color: var(--accent); }
+  .ns-facts   { background: rgba(206,147,216,0.12); color: var(--purple); }
+  .ns-context { background: rgba(0,230,118,0.12); color: var(--green); }
+  .ns-people  { background: rgba(255,171,64,0.12); color: var(--amber); }
+  .ns-scratch { background: rgba(90,122,150,0.18); color: var(--muted); }
+  .ns-other   { background: rgba(90,122,150,0.1); color: var(--muted); }
+  .mem-entry-bot { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .mem-hash  { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .vitality-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; }
+  .vitality-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+  .mem-vit   { font-family: var(--mono); font-size: 10px; }
+
+  /* ─ Detail panel ─ */
+  .detail-empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 300px; color: var(--muted); font-family: var(--mono); font-size: 11px; gap: 8px;
+  }
+  .detail-empty::before { content: '[ ]'; font-size: 32px; opacity: 0.2; }
+  .detail-section { margin-bottom: 16px; }
+  .detail-section-title { font-size: 10px; font-family: var(--mono); color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+  .detail-text {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px; font-family: var(--mono); font-size: 12px; color: var(--text);
+    line-height: 1.6; word-break: break-word;
+  }
+  .detail-hash {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    word-break: break-all; line-height: 1.8;
+  }
+  .detail-hash span { color: var(--accent2); }
+  .detail-meta { display: flex; gap: 16px; flex-wrap: wrap; }
+  .detail-meta-item { display: flex; flex-direction: column; gap: 3px; }
+  .detail-meta-label { font-size: 10px; color: var(--muted); font-family: var(--mono); text-transform: uppercase; }
+  .detail-meta-val   { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+
+  /* ─ Action buttons ─ */
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .btn {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
+    padding: 6px 14px; border-radius: 4px; border: 1px solid var(--border2);
+    background: transparent; color: var(--muted); cursor: pointer;
+    transition: all 0.15s; text-transform: uppercase;
+  }
+  .btn:hover   { color: var(--text); border-color: var(--text); }
+  .btn.danger  { border-color: rgba(255,82,82,0.3); color: var(--red); }
+  .btn.danger:hover { border-color: var(--red); background: rgba(255,82,82,0.08); }
+  .btn.primary { border-color: var(--accent2); color: var(--accent); }
+  .btn.primary:hover { background: rgba(0,200,255,0.08); }
+  .btn.success { border-color: rgba(0,230,118,0.3); color: var(--green); }
+  .btn.success:hover { border-color: var(--green); background: rgba(0,230,118,0.06); }
+
+  /* ─ REPL panel ─ */
+  .repl-out {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px; height: 220px; overflow-y: auto;
+    font-family: var(--mono); font-size: 11px; line-height: 1.8;
+    margin-bottom: 10px;
+  }
+  .repl-line { display: flex; gap: 8px; align-items: flex-start; }
+  .repl-line .prompt { color: var(--green); user-select: none; }
+  .repl-line .out    { color: var(--muted); }
+  .repl-line .ok     { color: var(--green); }
+  .repl-line .err    { color: var(--red); }
+  .repl-line .hash   { color: var(--accent2); }
+  .repl-input-row { display: flex; gap: 8px; align-items: center; }
+  .repl-prompt-label { font-family: var(--mono); font-size: 11px; color: var(--green); white-space: nowrap; }
+  .repl-input {
+    flex: 1; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    outline: none; transition: border-color 0.15s;
+  }
+  .repl-input:focus { border-color: var(--accent2); }
+  .repl-send {
+    font-family: var(--mono); font-size: 11px; padding: 6px 14px;
+    border: 1px solid var(--accent2); border-radius: 4px;
+    background: transparent; color: var(--accent); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .repl-send:hover { background: rgba(0,200,255,0.1); }
+
+  /* ─ Workflow guide ─ */
+  .workflow { display: flex; flex-direction: column; gap: 8px; }
+  .wf-step {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg3); transition: border-color 0.15s; cursor: default;
+  }
+  .wf-step:hover { border-color: var(--border2); }
+  .wf-num { font-family: var(--mono); font-size: 10px; color: var(--accent); min-width: 20px; }
+  .wf-cmd { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .wf-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* ─ Dream cycle viz ─ */
+  .decay-ring { position: relative; width: 80px; height: 80px; }
+  .decay-ring svg { transform: rotate(-90deg); }
+  .decay-ring-label {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+  }
+  .decay-ring-label .cycles { font-size: 18px; color: var(--amber); }
+  .decay-ring-label .lbl    { font-size: 9px; color: var(--muted); }
+
+  /* ─ Scrollbar ─ */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ─ Tag ─ */
+  .tag {
+    font-size: 10px; font-family: var(--mono); padding: 2px 7px;
+    border-radius: 3px; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .tag.pinned  { background: rgba(0,230,118,0.12); color: var(--green); }
+  .tag.mortal  { background: rgba(255,171,64,0.12); color: var(--amber); }
+  .tag.dead    { background: rgba(255,82,82,0.1);  color: var(--red);  }
+
+  /* ─ Empty state ─ */
+  .empty-list {
+    text-align: center; padding: 40px 0;
+    font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 2;
+  }
+
+  @media (max-width: 900px) {
+    .main-grid  { grid-template-columns: 1fr; }
+    .stats-row  { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">
+      <span class="pulse-dot"></span>
+      VOLTEX<span> / memory dashboard</span>
+    </div>
+    <div class="status-bar">
+      <span>HOST <b id="host-label">localhost:7474</b></span>
+      <span>UPTIME <b id="uptime-label">—</b></span>
+      <span>DREAM <b id="dream-label">0 cycles</b></span>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">REGISTRY ENTRIES</div>
+      <div class="stat-val" id="s-registry">—</div>
+      <div class="stat-sub">named memories</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">PINNED NODES</div>
+      <div class="stat-val" id="s-pinned">—</div>
+      <div class="stat-sub">immortal memories</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-label">VAULT NODES</div>
+      <div class="stat-val" id="s-total">—</div>
+      <div class="stat-sub">atoms + chunks</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-label">CACHE HIT RATE</div>
+      <div class="stat-val" id="s-hit">—</div>
+      <div class="stat-sub">blob cache</div>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- Left column: registry + REPL -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Registry panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="hi">// </span>ACTIVE MEMORY</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn primary" onclick="refreshAll()">REFRESH</button>
+            <button class="btn success" onclick="runDream()">DREAM CYCLE</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="ns-tabs" id="ns-tabs">
+            <button class="ns-tab active" data-ns="" onclick="filterNs(this,'')">ALL</button>
+            <button class="ns-tab" data-ns="goals"   onclick="filterNs(this,'goals')">goals/</button>
+            <button class="ns-tab" data-ns="facts"   onclick="filterNs(this,'facts')">facts/</button>
+            <button class="ns-tab" data-ns="context" onclick="filterNs(this,'context')">context/</button>
+            <button class="ns-tab" data-ns="people"  onclick="filterNs(this,'people')">people/</button>
+            <button class="ns-tab" data-ns="scratch" onclick="filterNs(this,'scratch')">scratch/</button>
+          </div>
+          <div class="mem-list" id="mem-list">
+            <div class="empty-list">no memory entries<br>use INGEST + REGISTER to add memories</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REPL panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="hi">// </span>COMMAND TERMINAL</div>
+        </div>
+        <div class="panel-body">
+          <div class="repl-out" id="repl-out">
+            <div class="repl-line"><span class="out">Voltex API Dashboard v1.0  —  connect a server to begin</span></div>
+          </div>
+          <div class="repl-input-row">
+            <span class="repl-prompt-label">voltex#</span>
+            <input class="repl-input" id="repl-input" placeholder='{"cmd":"STATUS"}'
+                   onkeydown="if(event.key==='Enter')sendCmd()">
+            <button class="repl-send" onclick="sendCmd()">SEND</button>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn" onclick="quickCmd('STATUS')">STATUS</button>
+            <button class="btn" onclick="quickCmd('DREAM')">DREAM</button>
+            <button class="btn" onclick="quickCmd('SAVE')">SAVE</button>
+            <button class="btn" onclick="quickCmd('LOAD')">LOAD</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right column: detail + workflow -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Detail panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="hi">// </span>NODE DETAIL</div>
+          <div id="detail-pin-badge"></div>
+        </div>
+        <div class="panel-body" id="detail-body">
+          <div class="detail-empty">select a memory to inspect</div>
+        </div>
+      </div>
+
+      <!-- Workflow guide -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="hi">// </span>GOAL LIFECYCLE</div>
+        </div>
+        <div class="panel-body">
+          <div class="workflow">
+            <div class="wf-step">
+              <div class="wf-num">01</div>
+              <div>
+                <div class="wf-cmd">INGEST(text) → hash</div>
+                <div class="wf-desc">Store the goal text, receive root hash</div>
+              </div>
+            </div>
+            <div class="wf-step">
+              <div class="wf-num">02</div>
+              <div>
+                <div class="wf-cmd">PIN(hash)</div>
+                <div class="wf-desc">Grant immortality — prevents decay</div>
+              </div>
+            </div>
+            <div class="wf-step">
+              <div class="wf-num">03</div>
+              <div>
+                <div class="wf-cmd">REGISTER("goals/name", hash)</div>
+                <div class="wf-desc">Name the hash for future lookup</div>
+              </div>
+            </div>
+            <div class="wf-step">
+              <div class="wf-num" style="color:var(--muted)">···</div>
+              <div>
+                <div class="wf-cmd" style="color:var(--muted)">work toward the goal</div>
+                <div class="wf-desc">RLIST() at start of each turn</div>
+              </div>
+            </div>
+            <div class="wf-step">
+              <div class="wf-num" style="color:var(--green)">04</div>
+              <div>
+                <div class="wf-cmd">FORGET("goals/name")</div>
+                <div class="wf-desc">Unpin + deregister — node decays away</div>
+              </div>
+            </div>
+            <div class="wf-step">
+              <div class="wf-num" style="color:var(--green)">05</div>
+              <div>
+                <div class="wf-cmd">REGISTER("facts/done", hash)</div>
+                <div class="wf-desc">Record completion as a permanent fact</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add memory quick form -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="hi">// </span>QUICK INGEST</div>
+        </div>
+        <div class="panel-body" style="display:flex;flex-direction:column;gap:10px;">
+          <input class="repl-input" id="q-text"  placeholder="Text to remember..." style="width:100%">
+          <input class="repl-input" id="q-label" placeholder="Label: goals/my-goal" style="width:100%">
+          <div style="display:flex;gap:8px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:var(--mono);color:var(--muted);cursor:pointer;">
+              <input type="checkbox" id="q-pin" checked style="accent-color:var(--green)"> PIN (immortal)
+            </label>
+          </div>
+          <button class="btn primary" onclick="quickIngest()" style="align-self:flex-start;">
+            INGEST + REGISTER
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────
+let entries   = [];
+let selected  = null;
+let currentNs = '';
+let dreamCycles = 0;
+let startTime = Date.now();
+let serverUrl = 'http://localhost:7474'; // not used — direct mode
+
+// ─── Demo mode (no server required for UI showcase) ───────────────
+// In production, replace replCalls with actual fetch() to your
+// HTTP-JSON bridge, or use the direct TCP socket via a WebSocket proxy.
+// The UI is fully functional in demo mode with synthetic data.
+
+let demoEntries = [
+  {label:'goals/build-voltex-api',   hash:'a3f8c2e1d4b7f091a3f8c2e1d4b7f091a3f8c2e1d4b7f091a3f8c2e1d4b7f091', namespace:'goals',   vitality:1.0, pinned:true,  alive:true,  text:'Build a Voltex LLM integration layer with socket API and registry system'},
+  {label:'goals/write-client-lib',   hash:'00ff12340abc567800ff12340abc567800ff12340abc567800ff12340abc5678', namespace:'goals',   vitality:1.0, pinned:true,  alive:true,  text:'Write Python client library for Voltex API with all 8 LLM tools'},
+  {label:'facts/user-prefers-concise',hash:'b7c3d4e5f6a7b8c9b7c3d4e5f6a7b8c9b7c3d4e5f6a7b8c9b7c3d4e5f6a7b8c9', namespace:'facts',   vitality:1.0, pinned:true,  alive:true,  text:'User prefers concise responses without excessive formatting'},
+  {label:'facts/project-stack',      hash:'c8d4e5f6a7b8c9d0c8d4e5f6a7b8c9d0c8d4e5f6a7b8c9d0c8d4e5f6a7b8c9d0', namespace:'facts',   vitality:1.0, pinned:true,  alive:true,  text:'Project stack: C++ vault core, Python client, TCP JSON protocol on port 7474'},
+  {label:'context/current-task',     hash:'d9e5f6a7b8c9d0e1d9e5f6a7b8c9d0e1d9e5f6a7b8c9d0e1d9e5f6a7b8c9d0e1', namespace:'context', vitality:1.0, pinned:true,  alive:true,  text:'Building the registry system and web dashboard for Voltex API'},
+  {label:'people/user-name',         hash:'e0f6a7b8c9d0e1f2e0f6a7b8c9d0e1f2e0f6a7b8c9d0e1f2e0f6a7b8c9d0e1f2', namespace:'people',  vitality:1.0, pinned:true,  alive:true,  text:'User goes by their handle — they built the original Voltex REPL'},
+  {label:'scratch/temp-note-1',      hash:'f1a7b8c9d0e1f2a3f1a7b8c9d0e1f2a3f1a7b8c9d0e1f2a3f1a7b8c9d0e1f2a3', namespace:'scratch', vitality:0.72, pinned:false, alive:true,  text:'Looked up SHA-256 block size = 32 bytes for the HexID struct'},
+  {label:'scratch/temp-note-2',      hash:'02b8c9d0e1f2a3b402b8c9d0e1f2a3b402b8c9d0e1f2a3b402b8c9d0e1f2a3b4', namespace:'scratch', vitality:0.41, pinned:false, alive:true,  text:'Checked Windows socket API — need ws2_32.lib and MAKEWORD(2,2)'},
+];
+
+let demoStatus = { atoms:538, chunks:86647, total:87185, max_depth:18, blob_bytes:892416, hot_blobs:538, cache_hit_rate:99.1, registry_entries:demoEntries.length };
+
+// ─── WebSocket connection to voltex_proxy.py ─────────────────────
+const WS_URL = 'ws://localhost:8765';
+let ws = null;
+let wsReady = false;
+let pendingResolve = null;   // one in-flight command at a time (server is serial)
+let liveMode = false;
+
+function wsConnect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    wsReady = true; liveMode = true;
+    document.getElementById('host-label').textContent = 'localhost:7474 ✓';
+    replLog('[WS] Connected to Voltex API server', 'ok');
+    // Pull real state immediately
+    wsCall({cmd:'STATUS'}).then(applyStatus);
+    wsCall({cmd:'RLIST', namespace:''}).then(applyRlist);
+  };
+  ws.onmessage = e => {
+    if(pendingResolve) { pendingResolve(JSON.parse(e.data)); pendingResolve = null; }
+  };
+  ws.onclose = () => {
+    wsReady = false; liveMode = false;
+    document.getElementById('host-label').textContent = 'localhost:7474 ✗';
+    replLog('[WS] Disconnected — falling back to demo mode', 'err');
+    setTimeout(wsConnect, 3000);   // auto-reconnect
+  };
+  ws.onerror = () => ws.close();
+}
+
+function wsCall(payload) {
+  return new Promise((resolve, reject) => {
+    if(!wsReady) { reject(new Error('not connected')); return; }
+    pendingResolve = resolve;
+    ws.send(JSON.stringify(payload));
+    setTimeout(() => { if(pendingResolve===resolve){pendingResolve=null;reject(new Error('timeout'));} }, 5000);
+  });
+}
+
+function applyStatus(r) {
+  if(!r.ok) return;
+  demoStatus = { atoms: r.atoms, chunks: r.chunks, total: r.total,
+    max_depth: r.max_depth, blob_bytes: r.blob_bytes,
+    hot_blobs: r.hot_blobs, cache_hit_rate: r.cache_hit_rate,
+    registry_entries: r.registry_entries };
+  renderStats();
+}
+
+function applyRlist(r) {
+  if(!r.ok) return;
+  entries = r.entries.map(e => ({...e, text: e.text || ''}));
+  demoStatus.registry_entries = entries.length;
+  renderList(); renderStats();
+}
+
+// Attempt connection on load; falls back silently to demo mode
+try { wsConnect(); } catch(e) { /* demo mode */ }
+
+function replLog(line, cls='out') {
+  const out = document.getElementById('repl-out');
+  const div = document.createElement('div');
+  div.className = 'repl-line';
+  div.innerHTML = `<span class="${cls}">${escHtml(line)}</span>`;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── Render functions ────────────────────────────────────────────
+function nsClass(ns) {
+  const map = {goals:'ns-goals',facts:'ns-facts',context:'ns-context',people:'ns-people',scratch:'ns-scratch'};
+  return map[ns] || 'ns-other';
+}
+
+function vitColor(v) {
+  if(v >= 0.8) return 'var(--green)';
+  if(v >= 0.4) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+function renderList() {
+  const list = document.getElementById('mem-list');
+  const filtered = currentNs ? entries.filter(e => e.namespace === currentNs) : entries;
+
+  if(filtered.length === 0) {
+    list.innerHTML = `<div class="empty-list">no entries in ${currentNs || 'registry'}</div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+  filtered.forEach(e => {
+    const cls = e.pinned ? 'pinned' : (e.vitality < 0.4 ? 'decaying' : '');
+    const isSelected = selected && selected.label === e.label;
+    const div = document.createElement('div');
+    div.className = `mem-entry ${cls} ${isSelected?'selected':''}`;
+    div.onclick = () => selectEntry(e);
+    const shortHash = e.hash.slice(0,8) + '...' + e.hash.slice(-4);
+    const pct = Math.round(e.vitality * 100);
+    div.innerHTML = `
+      <div class="mem-entry-top">
+        <span class="mem-label">${escHtml(e.label)}</span>
+        <span class="tag ${nsClass(e.namespace)}">${escHtml(e.namespace||'?')}</span>
+      </div>
+      <div class="mem-entry-bot">
+        <span class="mem-hash">${shortHash}</span>
+        <div class="vitality-bar"><div class="vitality-fill" style="width:${pct}%;background:${vitColor(e.vitality)}"></div></div>
+        <span class="mem-vit" style="color:${vitColor(e.vitality)}">${pct}%</span>
+        ${e.pinned ? '<span class="tag pinned">PIN</span>' : ''}
+      </div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+function renderStats() {
+  const pinned = entries.filter(e => e.pinned).length;
+  document.getElementById('s-registry').textContent = demoStatus.registry_entries;
+  document.getElementById('s-pinned').textContent   = pinned;
+  document.getElementById('s-total').textContent    = demoStatus.total.toLocaleString();
+  document.getElementById('s-hit').textContent      = demoStatus.cache_hit_rate.toFixed(1) + '%';
+  document.getElementById('dream-label').textContent = dreamCycles + ' cycles';
+
+  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const m = Math.floor(elapsed/60), s = elapsed%60;
+  document.getElementById('uptime-label').textContent = m+'m '+String(s).padStart(2,'0')+'s';
+}
+
+function selectEntry(e) {
+  selected = e;
+  renderList();
+  renderDetail();
+}
+
+function renderDetail() {
+  const body = document.getElementById('detail-body');
+  const badge = document.getElementById('detail-pin-badge');
+  if(!selected) {
+    body.innerHTML = '<div class="detail-empty">select a memory to inspect</div>';
+    badge.innerHTML = '';
+    return;
+  }
+  const e = selected;
+  badge.innerHTML = e.pinned
+    ? '<span class="tag pinned">IMMORTAL</span>'
+    : `<span class="tag mortal">V: ${(e.vitality*100).toFixed(0)}%</span>`;
+
+  body.innerHTML = `
+    <div class="detail-section">
+      <div class="detail-section-title">label</div>
+      <div class="detail-text">${escHtml(e.label)}</div>
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-title">content</div>
+      <div class="detail-text">${escHtml(e.text || '(no preview)')}</div>
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-title">root hash</div>
+      <div class="detail-hash"><span>${e.hash.slice(0,32)}</span><br><span>${e.hash.slice(32)}</span></div>
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-title">metadata</div>
+      <div class="detail-meta">
+        <div class="detail-meta-item">
+          <div class="detail-meta-label">namespace</div>
+          <div class="detail-meta-val" style="color:var(--accent)">${escHtml(e.namespace||'—')}</div>
+        </div>
+        <div class="detail-meta-item">
+          <div class="detail-meta-label">vitality</div>
+          <div class="detail-meta-val" style="color:${vitColor(e.vitality)}">${(e.vitality*100).toFixed(1)}%</div>
+        </div>
+        <div class="detail-meta-item">
+          <div class="detail-meta-label">pinned</div>
+          <div class="detail-meta-val" style="color:${e.pinned?'var(--green)':'var(--amber)'}">${e.pinned?'YES':'NO'}</div>
+        </div>
+        <div class="detail-meta-item">
+          <div class="detail-meta-label">alive</div>
+          <div class="detail-meta-val" style="color:${e.alive?'var(--green)':'var(--red)'}">${e.alive?'YES':'DECAYED'}</div>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      ${e.pinned
+        ? `<button class="btn danger" onclick="doUnpin()">UNPIN (allow decay)</button>`
+        : `<button class="btn success" onclick="doPin()">PIN (make immortal)</button>`}
+      <button class="btn danger" onclick="doForget()">FORGET (remove)</button>
+      <button class="btn" onclick="doUnroll()">UNROLL</button>
+    </div>
+  `;
+}
+
+// ─── Actions ─────────────────────────────────────────────────────
+function doPin() {
+  if(!selected) return;
+  replLog(`> PIN ${selected.hash.slice(0,16)}...`,'prompt');
+  const act = liveMode ? wsCall({cmd:'PIN', hash:selected.hash}) : Promise.resolve({ok:true});
+  act.then(r => {
+    if(!r||!r.ok) { replLog('[ERROR] pin failed','err'); return; }
+    selected.pinned=true; selected.vitality=1.0;
+    const idx=entries.findIndex(e=>e.label===selected.label); if(idx>=0) entries[idx]={...selected};
+    replLog('[PIN] Node is IMMORTAL','ok');
+    renderList(); renderDetail();
+  });
+}
+function doUnpin() {
+  if(!selected) return;
+  replLog(`> UNPIN ${selected.hash.slice(0,16)}...`,'prompt');
+  const act = liveMode ? wsCall({cmd:'UNPIN', hash:selected.hash}) : Promise.resolve({ok:true});
+  act.then(r => {
+    if(!r||!r.ok) { replLog('[ERROR] unpin failed','err'); return; }
+    selected.pinned=false;
+    const idx=entries.findIndex(e=>e.label===selected.label); if(idx>=0) entries[idx]={...selected};
+    replLog('[UNPIN] Status: decaying','out');
+    renderList(); renderDetail();
+  });
+}
+function doForget() {
+  if(!selected) return;
+  replLog(`> FORGET "${selected.label}"`,'prompt');
+  const act = liveMode ? wsCall({cmd:'FORGET', label:selected.label}) : Promise.resolve({ok:true});
+  act.then(r => {
+    if(!r||!r.ok) { replLog('[ERROR] forget failed','err'); return; }
+    entries=entries.filter(e=>e.label!==selected.label);
+    demoStatus.registry_entries=entries.length;
+    replLog(`[FORGET] "${selected.label}" forgotten`,'ok');
+    selected=null; renderList(); renderDetail(); renderStats();
+  });
+}
+function doUnroll() {
+  if(!selected) return;
+  replLog(`> UNROLL ${selected.hash.slice(0,16)}...`,'prompt');
+  if(liveMode) {
+    wsCall({cmd:'UNROLL', hash:selected.hash}).then(r => {
+      if(r&&r.ok) replLog(`"${r.text}"`, 'ok');
+      else replLog('[ERROR] unroll failed','err');
+    });
+  } else {
+    replLog(`"${selected.text||'(no text in demo)'}"`, 'ok');
+  }
+}
+
+function filterNs(btn, ns) {
+  currentNs = ns;
+  document.querySelectorAll('.ns-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderList();
+}
+
+function runDream() {
+  dreamCycles++;
+  replLog(`> DREAM cycle ${dreamCycles}`,'prompt');
+  let purged = 0;
+  entries.forEach(e => {
+    if(!e.pinned) {
+      e.vitality *= 0.95;
+      if(e.vitality < 0.2) { e.alive = false; purged++; }
+    }
+  });
+  entries = entries.filter(e => e.alive);
+  demoStatus.registry_entries = entries.length;
+  replLog(`[DREAM] Purged: ${purged}  Remaining: ${entries.length}`,'ok');
+  if(selected && !entries.find(e => e.label === selected.label)) selected = null;
+  renderList(); renderDetail(); renderStats();
+}
+
+function refreshAll() {
+  replLog('> RLIST + STATUS','prompt');
+  replLog(`[OK] ${entries.length} registry entries  |  ${demoStatus.total} vault nodes`,'ok');
+  renderList(); renderStats();
+}
+
+async function quickIngest() {
+  const text  = document.getElementById('q-text').value.trim();
+  const label = document.getElementById('q-label').value.trim();
+  const pin   = document.getElementById('q-pin').checked;
+  if(!text) { replLog('[ERROR] text is required','err'); return; }
+
+  let hash;
+  if(liveMode) {
+    replLog(`> INGEST "${text.slice(0,40)}..."`, 'prompt');
+    const r = await wsCall({cmd:'INGEST', text}).catch(e=>{replLog('[ERROR] '+e.message,'err');return null;});
+    if(!r||!r.ok) return;
+    hash = r.hash;
+    replLog(`[OK] hash: ${hash}`, 'hash');
+    if(pin) {
+      await wsCall({cmd:'PIN', hash});
+      replLog(`[PIN] IMMORTAL`, 'ok');
+    }
+    if(label) {
+      await wsCall({cmd:'REGISTER', label, hash});
+      replLog(`[REGISTER] "${label}"`, 'ok');
+    }
+    await wsCall({cmd:'RLIST', namespace:''}).then(applyRlist);
+    await wsCall({cmd:'STATUS'}).then(applyStatus);
+  } else {
+    hash = Array.from({length:64},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+    replLog(`> INGEST "${text.slice(0,30)}..."`, 'prompt');
+    replLog(`[OK] hash: ${hash.slice(0,16)}...`, 'hash');
+    if(pin) replLog(`[PIN] IMMORTAL`, 'ok');
+    const ns = label ? label.split('/')[0] : 'scratch';
+    const entry = {label:label||`scratch/note-${Date.now()}`, hash, namespace:ns, vitality:1.0, pinned:pin, alive:true, text};
+    entries.push(entry);
+    demoStatus.registry_entries = entries.length;
+    if(label) replLog(`[REGISTER] "${label}"`, 'ok');
+    selected = entry;
+    renderList(); renderDetail(); renderStats();
+  }
+
+  document.getElementById('q-text').value  = '';
+  document.getElementById('q-label').value = '';
+}
+
+function sendCmd() {
+  const inp = document.getElementById('repl-input');
+  const raw = inp.value.trim();
+  if(!raw) return;
+  inp.value = '';
+  replLog('> ' + raw, 'prompt');
+
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch(e) { replLog('[ERROR] invalid JSON', 'err'); return; }
+
+  const cmd = parsed.cmd;
+  if(liveMode) {
+    // Live path — send to server via WebSocket, handle response
+    wsCall(parsed).then(r => {
+      const txt = JSON.stringify(r);
+      replLog(txt.length > 200 ? txt.slice(0,200)+'…' : txt, r.ok ? 'ok' : 'err');
+      // Sync UI state for mutating commands
+      if(cmd==='DREAM')   { wsCall({cmd:'STATUS'}).then(applyStatus); wsCall({cmd:'RLIST',namespace:''}).then(applyRlist); }
+      if(cmd==='RLIST')   applyRlist(r);
+      if(cmd==='STATUS')  applyStatus(r);
+      if(cmd==='FORGET')  wsCall({cmd:'RLIST',namespace:''}).then(applyRlist);
+      if(cmd==='PIN'||cmd==='UNPIN') wsCall({cmd:'RLIST',namespace:''}).then(applyRlist);
+      if(cmd==='SAVE')    replLog('[SAVE] vault + registry persisted', 'ok');
+      if(cmd==='LOAD')    { wsCall({cmd:'RLIST',namespace:''}).then(applyRlist); wsCall({cmd:'STATUS'}).then(applyStatus); }
+      if(cmd==='INGEST'&&r.ok) replLog(`hash: ${r.hash}`, 'hash');
+      if(cmd==='UNROLL'&&r.ok) replLog(`"${r.text}"`, 'ok');
+    }).catch(e => replLog(`[ERROR] ${e.message}`, 'err'));
+  } else {
+    // Demo fallback
+    if(cmd==='STATUS') { replLog(JSON.stringify(demoStatus), 'ok'); }
+    else if(cmd==='DREAM') { runDream(); }
+    else if(cmd==='SAVE')  { replLog(`[SAVE] ${entries.length} entries (demo)`, 'ok'); }
+    else if(cmd==='LOAD')  { replLog(`[LOAD] ${entries.length} entries (demo)`, 'ok'); }
+    else if(cmd==='RLIST') {
+      const f = parsed.namespace ? entries.filter(e=>e.namespace===parsed.namespace) : entries;
+      replLog(`[RLIST] ${f.length} entries`, 'ok');
+      f.slice(0,5).forEach(e => replLog(`  ${e.label}  ${(e.vitality*100).toFixed(0)}%  ${e.pinned?'[PIN]':''}`, 'out'));
+      if(f.length>5) replLog(`  …and ${f.length-5} more`, 'out');
+    } else if(cmd==='INGEST') {
+      const h = Array.from({length:64},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+      replLog(`[OK] hash: ${h}`, 'hash');
+    } else { replLog(`[DEMO] "${cmd}" — start proxy for live execution`, 'out'); }
+  }
+}
+
+function quickCmd(cmd) {
+  document.getElementById('repl-input').value = JSON.stringify({cmd});
+  sendCmd();
+}
+
+// ─── Init ────────────────────────────────────────────────────────
+entries = JSON.parse(JSON.stringify(demoEntries));
+renderList();
+renderStats();
+renderDetail();
+
+// Uptime ticker
+setInterval(() => {
+  renderStats();
+}, 1000);
+
+// Welcome message
+replLog('Voltex Memory Dashboard  —  connecting to ws://localhost:8765...', 'out');
+replLog('Run voltex_api + voltex_proxy.py for live mode', 'out');
+</script>
+</body>
+</html>

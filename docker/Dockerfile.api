@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────
+#  Stage 1 — build
+#  Uses Debian Bookworm (GCC 12, OpenSSL 3)
+# ─────────────────────────────────────────────
+FROM debian:bookworm-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        g++ \
+        libssl-dev \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY voltex_api.cpp .
+
+RUN g++ -std=c++17 -O2 -o voltex_api voltex_api.cpp \
+        -lssl -lcrypto -lpthread
+
+# ─────────────────────────────────────────────
+#  Stage 2 — runtime
+#  Minimal image — only the binary + OpenSSL runtime
+# ─────────────────────────────────────────────
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Vault data lives here — mount a named volume at this path
+WORKDIR /vault
+
+COPY --from=builder /src/voltex_api /usr/local/bin/voltex_api
+
+# Port the TCP JSON server listens on
+EXPOSE 7474
+
+# Vault files (vault.meta, vault.blob, registry.vtxr) are written
+# to /vault — mount a volume there to persist across restarts
+VOLUME ["/vault"]
+
+CMD ["voltex_api"]
