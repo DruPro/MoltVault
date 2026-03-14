@@ -5,7 +5,7 @@
 FROM python:3.12-alpine
 
 RUN pip install --no-cache-dir websockets
-RUN apk add --no-cache netcat-openbsd
+
 
 WORKDIR /app
 COPY voltex_proxy.py .
