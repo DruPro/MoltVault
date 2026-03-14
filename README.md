@@ -1,4 +1,4 @@
-# ⚡ Voltex
+# ⚡ MoltVault (Voltex)
 
 **A content-addressed, decay-aware memory vault for LLMs.**
 
