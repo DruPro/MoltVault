@@ -275,6 +275,20 @@
     font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 2;
   }
 
+  /* ─ Connection banner ─ */
+  .conn-banner {
+    display: none; align-items: center; gap: 10px;
+    background: rgba(255,82,82,0.08); border: 1px solid rgba(255,82,82,0.2);
+    border-radius: 6px; padding: 8px 14px; margin-bottom: 16px;
+    font-family: var(--mono); font-size: 11px; color: var(--red);
+  }
+  .conn-banner.show { display: flex; }
+  .conn-banner.live {
+    background: rgba(0,230,118,0.06); border-color: rgba(0,230,118,0.2);
+    color: var(--green);
+  }
+  .conn-banner .conn-url { color: var(--muted); margin-left: auto; }
+
   @media (max-width: 900px) {
     .main-grid  { grid-template-columns: 1fr; }
     .stats-row  { grid-template-columns: repeat(2, 1fr); }
@@ -296,6 +310,13 @@
       <span>UPTIME <b id="uptime-label">—</b></span>
       <span>DREAM <b id="dream-label">0 cycles</b></span>
     </div>
+  </div>
+
+  <!-- Connection banner -->
+  <div class="conn-banner show" id="conn-banner">
+    <span id="conn-icon">⬤</span>
+    <span id="conn-msg">Connecting to Voltex API...</span>
+    <span class="conn-url" id="conn-url"></span>
   </div>
 
   <!-- Stats row -->
@@ -495,41 +516,74 @@ let demoEntries = [
 
 let demoStatus = { atoms:538, chunks:86647, total:87185, max_depth:18, blob_bytes:892416, hot_blobs:538, cache_hit_rate:99.1, registry_entries:demoEntries.length };
 
-// ─── WebSocket connection to voltex_proxy.py ─────────────────────
-const WS_URL = 'ws://localhost:8765';
-let ws = null;
-let wsReady = false;
-let pendingResolve = null;   // one in-flight command at a time (server is serial)
-let liveMode = false;
+// ─── WebSocket connection ─────────────────────────────────────────
+// Routing logic:
+//   file://  →  ws://localhost:8765       (local dev, proxy running on host)
+//   http://  →  ws://same-host/ws         (Docker: nginx proxies /ws → proxy:8765)
+//   https:// →  wss://same-host/ws        (TLS termination upstream)
+const WS_URL = location.protocol === 'file:'
+  ? 'ws://localhost:8765'
+  : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+
+let ws         = null;
+let wsReady    = false;
+let pendingResolve = null;
+let liveMode   = false;
+let reconnectDelay = 1000;   // starts at 1s, backs off to 16s max
+
+function setConnectionStatus(connected, label) {
+  const el = document.getElementById('host-label');
+  const dot = document.querySelector('.pulse-dot');
+  el.textContent = label;
+  dot.style.background = connected ? 'var(--green)' : 'var(--red)';
+}
 
 function wsConnect() {
-  ws = new WebSocket(WS_URL);
+  try { ws = new WebSocket(WS_URL); } catch(e) { scheduleReconnect(); return; }
+
   ws.onopen = () => {
     wsReady = true; liveMode = true;
-    document.getElementById('host-label').textContent = 'localhost:7474 ✓';
-    replLog('[WS] Connected to Voltex API server', 'ok');
-    // Pull real state immediately
-    wsCall({cmd:'STATUS'}).then(applyStatus);
-    wsCall({cmd:'RLIST', namespace:''}).then(applyRlist);
+    reconnectDelay = 1000;   // reset backoff on success
+    const hostLabel = location.protocol === 'file:'
+      ? 'localhost:8765 ✓'
+      : `${location.host}/ws ✓`;
+    setConnectionStatus(true, hostLabel);
+    replLog(`[WS] Connected — ${WS_URL}`, 'ok');
+    wsCall({cmd:'STATUS'}).then(applyStatus).catch(()=>{});
+    wsCall({cmd:'RLIST', namespace:''}).then(applyRlist).catch(()=>{});
   };
+
   ws.onmessage = e => {
-    if(pendingResolve) { pendingResolve(JSON.parse(e.data)); pendingResolve = null; }
+    try {
+      const data = JSON.parse(e.data);
+      if(pendingResolve) { pendingResolve(data); pendingResolve = null; }
+    } catch(_) {}
   };
+
   ws.onclose = () => {
     wsReady = false; liveMode = false;
-    document.getElementById('host-label').textContent = 'localhost:7474 ✗';
-    replLog('[WS] Disconnected — falling back to demo mode', 'err');
-    setTimeout(wsConnect, 3000);   // auto-reconnect
+    setConnectionStatus(false, 'disconnected — retrying...');
+    replLog(`[WS] Lost connection — retrying in ${reconnectDelay/1000}s`, 'err');
+    scheduleReconnect();
   };
+
   ws.onerror = () => ws.close();
+}
+
+function scheduleReconnect() {
+  setTimeout(wsConnect, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 2, 16000);  // cap at 16s
 }
 
 function wsCall(payload) {
   return new Promise((resolve, reject) => {
     if(!wsReady) { reject(new Error('not connected')); return; }
+    if(pendingResolve) { reject(new Error('busy — one command at a time')); return; }
     pendingResolve = resolve;
     ws.send(JSON.stringify(payload));
-    setTimeout(() => { if(pendingResolve===resolve){pendingResolve=null;reject(new Error('timeout'));} }, 5000);
+    setTimeout(() => {
+      if(pendingResolve === resolve) { pendingResolve = null; reject(new Error('timeout')); }
+    }, 8000);
   });
 }
 
@@ -549,8 +603,42 @@ function applyRlist(r) {
   renderList(); renderStats();
 }
 
-// Attempt connection on load; falls back silently to demo mode
-try { wsConnect(); } catch(e) { /* demo mode */ }
+// ─── Init connection ─────────────────────────────────────────────
+function updateConnBanner(connected, msg) {
+  const b = document.getElementById('conn-banner');
+  const m = document.getElementById('conn-msg');
+  const u = document.getElementById('conn-url');
+  b.className = 'conn-banner show' + (connected ? ' live' : '');
+  m.textContent = msg;
+  u.textContent = WS_URL;
+  // Hide the live banner after 4 seconds — it becomes noise once connected
+  if(connected) setTimeout(() => b.classList.remove('show'), 4000);
+}
+
+// Monkey-patch wsConnect open/close to drive the banner
+const _origConnect = wsConnect;
+function wsConnectWithBanner() {
+  updateConnBanner(false, 'Connecting to Voltex API...');
+  const origOnOpen  = null;
+  const orig = wsConnect;
+  _origConnect();
+  // Patch callbacks after ws is created
+  if(!ws) return;
+  const _open  = ws.onopen;
+  const _close = ws.onclose;
+  ws.onopen = function(e) {
+    updateConnBanner(true, 'Connected — live data active');
+    if(_open) _open.call(this, e);
+  };
+  ws.onclose = function(e) {
+    updateConnBanner(false, `Disconnected — retrying in ${reconnectDelay/1000}s (demo mode active)`);
+    if(_close) _close.call(this, e);
+  };
+}
+
+try { wsConnectWithBanner(); } catch(e) {
+  updateConnBanner(false, 'Cannot connect — running in demo mode');
+}
 
 function replLog(line, cls='out') {
   const out = document.getElementById('repl-out');
@@ -747,24 +835,41 @@ function filterNs(btn, ns) {
 function runDream() {
   dreamCycles++;
   replLog(`> DREAM cycle ${dreamCycles}`,'prompt');
-  let purged = 0;
-  entries.forEach(e => {
-    if(!e.pinned) {
-      e.vitality *= 0.95;
-      if(e.vitality < 0.2) { e.alive = false; purged++; }
-    }
-  });
-  entries = entries.filter(e => e.alive);
-  demoStatus.registry_entries = entries.length;
-  replLog(`[DREAM] Purged: ${purged}  Remaining: ${entries.length}`,'ok');
-  if(selected && !entries.find(e => e.label === selected.label)) selected = null;
-  renderList(); renderDetail(); renderStats();
+  if(liveMode) {
+    wsCall({cmd:'DREAM'}).then(r => {
+      if(!r||!r.ok) { replLog('[ERROR] dream failed','err'); return; }
+      replLog(`[DREAM] Purged: ${r.purged}  Remaining: ${r.remaining}`,'ok');
+      wsCall({cmd:'STATUS'}).then(applyStatus);
+      wsCall({cmd:'RLIST', namespace:''}).then(r2 => {
+        applyRlist(r2);
+        if(selected && !entries.find(e => e.label === selected.label)) { selected=null; renderDetail(); }
+      });
+    }).catch(e => replLog('[ERROR] '+e.message,'err'));
+  } else {
+    let purged = 0;
+    entries.forEach(e => {
+      if(!e.pinned) { e.vitality *= 0.95; if(e.vitality < 0.2) { e.alive=false; purged++; } }
+    });
+    entries = entries.filter(e => e.alive);
+    demoStatus.registry_entries = entries.length;
+    replLog(`[DREAM] Purged: ${purged}  Remaining: ${entries.length}`,'ok');
+    if(selected && !entries.find(e => e.label === selected.label)) { selected=null; renderDetail(); }
+    renderList(); renderStats();
+  }
 }
 
 function refreshAll() {
   replLog('> RLIST + STATUS','prompt');
-  replLog(`[OK] ${entries.length} registry entries  |  ${demoStatus.total} vault nodes`,'ok');
-  renderList(); renderStats();
+  if(liveMode) {
+    wsCall({cmd:'STATUS'}).then(r => { applyStatus(r); });
+    wsCall({cmd:'RLIST', namespace:currentNs}).then(r => {
+      applyRlist(r);
+      replLog(`[OK] ${entries.length} registry entries  |  ${demoStatus.total} vault nodes`,'ok');
+    });
+  } else {
+    replLog(`[OK] ${entries.length} registry entries  |  ${demoStatus.total} vault nodes`,'ok');
+    renderList(); renderStats();
+  }
 }
 
 async function quickIngest() {
