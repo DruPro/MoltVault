@@ -1,4 +1,4 @@
-# ⚡ MoltVault (Voltex)
+# ⚡ Voltex
 
 **A content-addressed, decay-aware memory vault for LLMs.**
 
@@ -360,6 +360,81 @@ FRONTEND_PORT=8080    # dashboard (Docker only)
 **Decaying cache.** The vitality/dream cycle models a memory system where infrequently accessed data expires smoothly rather than hard-expiring. Maps naturally to session data, TTL caches, and relevance-weighted storage.
 
 **Portable vault snapshots.** The companion `vtx_export.cpp` utility converts the vault to a compact `.vtxe` format (positional addressing replaces 32-byte hash references with 4-byte row indices — ~61% size reduction) that can be archived, transmitted, or loaded into a fresh instance.
+---
+
+## Local LLM integration — BitNet 1.58b
+
+Run the full stack **entirely offline** using BitNet's 1-bit quantised Llama3-8B. No cloud API, no GPU required (CPU works, just slower).
+
+### What it does
+
+`voltex_bitnet.py` runs a local LLM that actively manages its own Voltex memory — calling `rlist` at the start of each turn, storing new goals with `ingest → pin → register`, and releasing completed goals with `forget`. The model uses tool calls embedded directly in its output text, which the runner parses and dispatches to the Voltex API.
+
+### Setup
+
+```bash
+# 1. Install the BitNet-compatible transformers fork
+pip install git+https://github.com/huggingface/transformers.git@refs/pull/33410/head
+pip install torch accelerate websockets
+
+# 2. Start Voltex (one command)
+docker compose up --build
+
+# 3. Run the BitNet chat (downloads ~8GB weights on first run)
+python voltex_bitnet.py
+```
+
+**No GPU?** Use `--cpu` flag (slower but works):
+```bash
+python voltex_bitnet.py --cpu
+```
+
+**Test the Voltex integration without a model:**
+```bash
+python voltex_bitnet.py --demo
+```
+Demo mode runs the full tool-call loop with synthetic model responses — useful for verifying your Voltex setup before the model downloads.
+
+### How tool calls work
+
+The model writes structured tags directly in its output:
+
+```
+<tool>{"action":"rlist","namespace":""}</tool>
+→ <tool_result>{"ok":true,"entries":[...],"count":3}</tool_result>
+
+<tool>{"action":"ingest","text":"learn transformer architecture"}</tool>
+→ <tool_result>{"ok":true,"hash":"a3f8c2e1...","tip":"call pin+register to keep it"}</tool_result>
+
+<tool>{"action":"pin","hash":"a3f8c2e1..."}</tool>
+<tool>{"action":"register","label":"goals/learn-transformers","hash":"a3f8c2e1..."}</tool>
+```
+
+The runner processes all tool calls, injects results, and loops until the model stops calling tools — up to 6 rounds per turn.
+
+### Built-in chat commands
+
+```
+memory   — print the full registry (what the model currently remembers)
+dream    — manually trigger one decay cycle
+save     — persist vault state to disk
+status   — print vault statistics
+quit     — save and exit
+```
+
+### Model details
+
+| Property | Value |
+|---|---|
+| Base model | Llama-3-8B-Instruct |
+| Architecture | BitNet 1.58b (1-bit quantisation) |
+| Training | 100B tokens on FineWeb-edu |
+| Weights | `HF1BitLLM/Llama3-8B-1.58-100B-tokens` |
+| Tokenizer | `meta-llama/Meta-Llama-3-8B-Instruct` |
+| Memory footprint | ~2GB (vs ~16GB for full bfloat16) |
+
+> The BitNet 1.58b architecture represents each weight as one of `{-1, 0, +1}`, reducing the model to roughly 1/8th the memory of a standard Llama3-8B while retaining competitive performance on reasoning tasks.
+
 
 ---
 
