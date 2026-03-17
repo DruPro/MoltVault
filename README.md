@@ -1,5 +1,5 @@
 # ⚡ Voltex
-
+VCCP Manifesto : https://docs.google.com/document/d/1doCG7_n9ENdG_vipWRxvF0IX8tRRB8lU/edit?usp=sharing&ouid=105515331495878025794&rtpof=true&sd=true
 **A content-addressed, decay-aware memory vault for LLMs.**
 
 Voltex gives language models a persistent working memory they actively manage — storing goals, facts, and context as cryptographic nodes in a Merkle DAG, with vitality decay that makes old memories fade naturally unless pinned.
